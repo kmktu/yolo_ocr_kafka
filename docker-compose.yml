@@ -1,0 +1,92 @@
+version: '3'  #docker-compose version
+services:
+  zookeeper:
+    image: zookeeper:3.4.9
+    networks:
+      - broker-kafka
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+      - "2181:2181"
+    volumes:
+      - ./data/zookeeper/data:/data
+      - ./data/zookeeper/datalog:/datalog
+  kafka:
+    image: confluentinc/cp-kafka:5.3.0
+#    hostname: kafka
+    networks:
+      - broker-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+#      KAFKA_BROKER_ID: 1
+#      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+##      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://192.168.50.135:9092
+#      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+##      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+##      BOOTSTRAP_SERVERS: kafka:9092
+##      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT:PLAINTEXT
+##      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+#      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+#    volumes:
+#      - ./data/kafka/data:/tmp/kafka-logs
+#  kafdrop:
+#    image: obsidiandynamics/kafdrop
+#    networks:
+#      - broker-kafka
+#    depends_on:
+#      - kafka
+#    ports:
+#      - "9000:9000"
+#    environment:
+#      KAFKA_BROKERCONNECT: "kafka:9092"
+  yolo_ocr:
+    container_name: yolo_ocr_producer
+    build:
+      context: .
+      dockerfile: yolo_ocr.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    depends_on:
+      - zookeeper
+      - kafka
+    networks:
+      - broker-kafka
+  consumer:
+    container_name: yolo_ocr_consumer
+    build:
+      context: .
+      dockerfile: consumer.Dockerfile
+    depends_on:
+      - zookeeper
+      - kafka
+    networks:
+      - broker-kafka
+# PLZ Add Consumer dockerfile
+# ---------------------------------
+networks:
+  broker-kafka:
+    driver: bridge
