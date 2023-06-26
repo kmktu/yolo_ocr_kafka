@@ -1,0 +1,25 @@
+# Usage: pip install -r requirements.txt
+# yolo
+numpy
+scikit-build
+cmake
+matplotlib
+#opencv-python==4.1.2.30
+#opencv-contrib-python-headless
+opencv-python-headless<4.3
+Pillow
+PyYAML
+requests
+tqdm
+protobuf
+tensorboard
+pandas
+seaborn
+ipython  # interactive notebook
+psutil  # system utilization
+thop>  # FLOPs computation
+# easyocr lib
+easyocr
+
+# kafka
+kafka-python

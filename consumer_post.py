@@ -5,33 +5,83 @@ import requests
 import datetime
 import time
 import string
+import threading
+import argparse
 
-def main():
-    consumer = KafkaConsumer(
-        'ocr_result',
-        bootstrap_servers=['kafka:9092'],
+# class post_t (threading.Thread):
+#     def __init__(self, consumer, receive_topic_name):
+#         super().__init__()
+#         self.consumer = consumer
+#         self.receive_topic_name = receive_topic_name
+#
+#     def run(self):
+#         print("START")
+#         while True:
+#             value = self.get_message(self.consumer)
+#             print("value : ", value)
+#             if value:
+#                 self.post_send_m(value)
+
+def main(bs, topic):
+    stream_consumer = KafkaConsumer(
+        topic,
+        bootstrap_servers=[bs],
         auto_offset_reset='latest',
         enable_auto_commit=True,
         consumer_timeout_ms=1000
     )
 
-    print(consumer.topics())
-    print("[begin] get consumer list")
-    frame_count = 0
-
     while True:
-        value = get_message(consumer)
+        value = get_message(stream_consumer)
         if value:
             post_send_m(value)
-            # print("-" * 10)
-            # print("value : ", value)
-            # print("-" * 10)
-        else:
-            frame_count += 1
-            if frame_count == 3:
-                post_send_m(None)
-                frame_count = 0
+    # stream_1_receive_topic_name = "stream_1_result"
+    # stream_2_receive_topic_name = "stream_2_result"
+    # stream_3_receive_topic_name = "stream_3_result"
+    #
+    # # kafka 컨슈머 연결
+    # stream_1_consumer = KafkaConsumer(
+    #     stream_1_receive_topic_name,
+    #     bootstrap_servers=['kafka2:9093'],
+    #     auto_offset_reset='latest',
+    #     enable_auto_commit=True,
+    #     consumer_timeout_ms=1000
+    # )
+    # stream_2_consumer = KafkaConsumer(
+    #     stream_2_receive_topic_name,
+    #     bootstrap_servers=['kafka2:9093'],
+    #     auto_offset_reset='latest',
+    #     enable_auto_commit=True,
+    #     consumer_timeout_ms=1000
+    # )
+    # stream_3_consumer = KafkaConsumer(
+    #     stream_3_receive_topic_name,
+    #     bootstrap_servers=['kafka2:9093'],
+    #     auto_offset_reset='latest',
+    #     enable_auto_commit=True,
+    #     consumer_timeout_ms=1000
+    # )
+    #
+    # print("[begin] get consumer list")
+    #
+    # stream_1_post_t = post_t(stream_1_consumer, stream_1_receive_topic_name)
+    # stream_2_post_t = post_t(stream_2_consumer, stream_2_receive_topic_name)
+    # stream_3_post_t = post_t(stream_3_consumer, stream_3_receive_topic_name)
+    #
+    # stream_1_post_t.start()
+    # stream_2_post_t.start()
+    # stream_3_post_t.start()
 
+def get_message(consumer):
+    value = None
+    if consumer:
+        for message in consumer:
+            topic = message.topic
+            partition = message.partition
+            offset = message.offset
+            key = message.key
+            value = loads(message.value.decode('utf-8'))
+    return value
 
 def post_send_m(value):
     post_dest_url_list = ["http://ims.yksteel.co.kr:90/WebServer/AiResult",
@@ -54,48 +104,46 @@ def post_send_m(value):
         ocr_all_number = value['Ocr_Result_All']
         truck_count = value['Truck_Count']
         camera_id = value['Camera_id']
+        # ocr_result = value['ocr_result']
+        # camera_id = value['camera_id']
         camera_guid = ""
         scraparea_cd = ""
-        if camera_id == '111111111':
-            camera_guid = cameraGuid_list[0]
-            scraparea_cd = scrapAreaCd_list[0]
 
         local_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
         result_dict = {"procYn": "N", "rcnCarNumb": "", "rcnDt": local_time, "scaleNumb": "", "carNumb": "",
                        "date": ""}
         new_result_dict = {"procYn": "N", "rcnCarNumb": "", "rcnDt": local_time, "tmsOdrNo": "", "vhclNo": ""}
 
-        result_dict["rcnCarNumb"] = ocr_last_4
-        new_result_dict["rcnCarNumb"] = ocr_last_4
-        scheduled_plate = find_truck_schedule(ocr_last_4, truck_schedule_url_list[2])
+        # 카메라 아이디는 kafka 메시지를 통해 들어옴
+        # cameraGuid, scrapAreaCd 는 동연에서 정해준 것 사용
+        if camera_id == '1':
+            camera_guid = cameraGuid_list[0]
+            scraparea_cd = scrapAreaCd_list[0]
+        elif camera_id == '2':
+            camera_guid = cameraGuid_list[1]
+            scraparea_cd = scrapAreaCd_list[1]
+        elif camera_id == '3':
+            camera_guid = cameraGuid_list[2]
+            scraparea_cd = scrapAreaCd_list[2]
 
-        if scheduled_plate == "":
-            new_result_dict["rcnCarNumb"] = ocr_last_4
-            new_result_dict["procYn"] = 'N'
+        if ocr_last_4 == "":
             post_send(new_result_dict, post_dest_url_list[5], scraparea_cd, camera_guid)
         else:
-            print("START")
-            new_result_dict["rcnCarNumb"] = ocr_last_4
-            new_result_dict["procYn"] = 'Y'
-            new_result_dict["vhclNo"] = scheduled_plate["vhclNo"]
-            new_result_dict["tmsOdrNo"] = scheduled_plate["tmsOdrNo"]  # tmsOdrNo
-            # new_post_send(new_result_dict, post_dest_url_list[1])
-            # new_post_send(new_result_dict, camera_id, post_dest_url_list[2])
-            post_send(new_result_dict, post_dest_url_list[5], scraparea_cd, camera_guid)
+            scheduled_plate = find_truck_schedule(ocr_last_4, truck_schedule_url_list[2])
 
-        print("-" * 10)
-        print("[Detect Time] : ", detect_time)
-        print("[Ocr Result last 4] : ", ocr_last_4)
-        print("[Ocr Result All Number] : ", ocr_all_number)
-        print("[Truck Count] : ", truck_count)
-        print("[Camera ID] : ", camera_id)
-        print("-" * 10)
-    else:
-        local_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time()))
-        new_result_dict = {"procYn": "", "rcnCarNumb": "", "rcnDt": local_time, "tmsOdrNo": "", "vhclNo": "",
-                           "cameraGuid": "", "scrapAreaCd": ""}
-        post_send(new_result_dict, post_dest_url_list[5], None, None)
+            if scheduled_plate == "":
+                new_result_dict["rcnCarNumb"] = ocr_last_4
+                new_result_dict["procYn"] = 'N'
+                post_send(new_result_dict, post_dest_url_list[5], scraparea_cd, camera_guid)
+            else:
+                new_result_dict["rcnCarNumb"] = ocr_last_4
+                new_result_dict["procYn"] = 'Y'
+                new_result_dict["vhclNo"] = scheduled_plate["vhclNo"]
+                new_result_dict["tmsOdrNo"] = scheduled_plate["tmsOdrNo"]  # tmsOdrNo
+                post_send(new_result_dict, post_dest_url_list[5], scraparea_cd, camera_guid)
 
+
+# POST 통신 부분
 def post_send(data, dest_url, scraparea_cd, camera_guid):
     try:
         data["cameraGuid"] = camera_guid
@@ -112,6 +160,7 @@ def post_send(data, dest_url, scraparea_cd, camera_guid):
         print(e)
         print("=======================================================")
 
+# 트럭 들어왔는지 확인하는 스케줄러
 def find_truck_schedule(plate, url):
     r = requests.post(url)
     print("********************* truck schedule data *********************")
@@ -130,7 +179,7 @@ def find_truck_schedule(plate, url):
                 if (origin_4num_arr[i] == car_num_arr[i]):
                     compareCount += 1
             # change number of match number 4
-            #if compareCount >= 3:
+            # if compareCount >= 3:
             if compareCount >= 4:
                 print("*************************************************************", compareCount * 25)
                 return data
@@ -143,16 +192,15 @@ def get_last_number(plate):
         return ""
     return last_num
 
-def get_message(consumer):
-    value = None
-    if consumer:
-        for message in consumer:
-            topic = message.topic
-            partition = message.partition
-            offset = message.offset
-            key = message.key
-            value = loads(message.value.decode('utf-8'))
-    return value
+def input_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-bs', '--bootstrap_server', default=None, help="use bootstrap_server")
+    parser.add_argument('-t', '--topic', default=None, help="use topic")
+    args = parser.parse_args()
+    return args
 
 if __name__ == '__main__':
-    main()
+    args = input_parser()
+    bs = args.bootstrap_server
+    topic = args.topic
+    main(bs, topic)

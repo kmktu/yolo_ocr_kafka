@@ -4,7 +4,8 @@ import os
 import cv2
 import time
 from PIL import Image
-import lp_detection_tracking
+# import lp_detection_tracking
+import lp_detection_model
 import numpy as np
 import string
 import argparse
@@ -24,9 +25,9 @@ def fps_calculator(cur_time, prev_time):
     return fps_str, prev_time
 
 
-def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
+def input_rtsp(camera_path, lp_conf, bs, topic):
     prev_time = 0
-    detection_yolo = lp_detection_tracking.lp_detection_tracking()
+    detection_yolo = lp_detection_model.lp_detection_tracking()
     detection_yolo.model_init()
     rtsp = cv2.VideoCapture(camera_path)
 
@@ -34,9 +35,11 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
     camera_path_split = camera_path.split("@")
     camera_id = ""
     if camera_path_split[1] == "220.95.111.220/profile2/media.smp":
-        camera_id = "111111111"
-    else:
-        camera_id = "None"
+        camera_id = "1"
+    elif camera_path_split[1] == "192.168.0.15":
+        camera_id = "2"
+    elif camera_path_split[1] == "192.168.0.13":
+        camera_id = "3"
 
     """
     plate_detection_flag : yolo 모델에서 번호판이 탐지되었을 경우 알려주는 플래그
@@ -58,9 +61,10 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
     truck_count = 0
     # between_ko = None
     ko_list = '가나다라마거너더러머버서어저고노도로모보소오조구누두루무부수우주바사아자허하호배'
+    post_frame_count = 0
 
-    # Kafka producer (1.209.33.170:29092)
-    producer = KafkaProducer(acks=0, bootstrap_servers=["kafka:9092"], api_version=(0, 11, 5),
+    # Kafka producer
+    producer = KafkaProducer(acks=0, bootstrap_servers=[bs], api_version=(0, 11, 5),
                              value_serializer=lambda x: dumps(x).encode('utf-8'))
 
     while True:
@@ -68,37 +72,53 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
         rtsp_cur_time = time.time()
 
         if rtsp_ret:
-            if detection_frame_count == 60:
+            if detection_frame_count == 30:
                 plate_detection_tracking_flag = True
 
-            rtsp_infer_img, plate_detection_flag, plate_id_list, truck_id_list, exit_flag, crop_plate, small_plate_detect = \
-                detection_yolo.inference_img(rtsp_img, plate_detection_tracking_flag=plate_detection_tracking_flag)
+            if post_frame_count == 36:
+                detect_time = time.strftime('%Y-%m-%d %H:%M:%S')
+                producer_value = {"Detect_Time": detect_time,
+                                  "Ocr_Result_4": "",
+                                  "Ocr_Result_All": "",
+                                  "Truck_Count": "",
+                                  "Camera_id": camera_id
+                                  }
+                try:
+                    print("send : ", producer_value)
+                    response = producer.send(topic=topic, value=producer_value).get()
+                    print("kafka_response : ", response)
+                except:
+                    traceback.print_exc()
+                # print("detect_time : ", detect_time, ", OCR_last_4 : ", "None",
+                #       ", OCR_all_number : ", ", in_truck_count :", truck_count,
+                #       ", Camera_ID : ", camera_id)
+                post_frame_count = 0
 
-            if plate_detection_flag and not small_plate_detect and not plate_detection_tracking_flag:
+            rtsp_infer_img,plate_detection_flag, plate_id_list = detection_yolo.inference_img2(rtsp_img)
+
+            if plate_detection_flag:
                 detection_frame_count += 1
+                post_frame_count = 0
             else:
                 detection_frame_count = 0
-
+                post_frame_count += 1
+            #
             # print("detection_frame_count :", detection_frame_count, ", "
-            #       "small_plate_detect :", small_plate_detect, ", "
             #       "plate_detection_tracking_flag :", plate_detection_tracking_flag, ","
             #       "count_24 :", count_24, ","
-            #       "plate_id_list : ", plate_id_list)
+            #       "plate_id_list : ", plate_id_list,
+            #       "post_frame_count : ", post_frame_count,
+            #       "ocr_list : ", ocr_list)
 
             if plate_detection_tracking_flag:
-                if len(plate_id_list) > 0:
+                if plate_id_list:
                     for index, value in enumerate(plate_id_list):
-                        plate_id = value[0]
-                        ocr_word = value[1]
+                        ocr_word = value
                         all_plate_number = ocr_word.translate(str.maketrans('', '', string.punctuation))
                         all_plate_number = all_plate_number.replace(" ", "")
                         last_4_word = all_plate_number[-4:]
 
                         if len(all_plate_number) > 5:
-                            # 사이에 낀 한글 포함 시 between_ko 에 지정
-                            # if all_plate_number[-5] in ko_list:
-                            #     between_ko = all_plate_number[-5]
-
                             if ocr_list and last_4_word == ocr_list[2]:
                                 plate_detection_tracking_flag = False
                                 detection_frame_count = 0
@@ -115,13 +135,13 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
                                                   }
                                 try:
                                     print("send : ",producer_value)
-                                    response = producer.send(topic='ocr_result', value=producer_value).get()
+                                    response = producer.send(topic=topic, value=producer_value).get()
                                     print("kafka_response : ", response)
                                 except:
                                     traceback.print_exc()
-                                print("detect_time : ", detect_time, ", OCR_last_4 : ", last_4_word,
-                                      ", OCR_all_number : ", ", in_truck_count :", truck_count,
-                                      ", Camera_ID : ", camera_id)
+                                # print("detect_time : ", detect_time, ", OCR_last_4 : ", last_4_word,
+                                #       ", OCR_all_number : ", ", in_truck_count :", truck_count,
+                                #       ", Camera_ID : ", camera_id)
                             else:
                                 if last_4_word not in plate_ocr_4word_dict:
                                     plate_ocr_4word_dict[last_4_word] = 1
@@ -138,17 +158,7 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
                                     plate_ocr_all_number_dict[all_plate_number] += 1
 
                                 if count_24 == 24:
-                                    # 추후 트럭의 움직임 유무 확인 시
-                                    truck_T_S_F = max(exit_flag, key=exit_flag.get)
-                                    exit_flag["True"] = 0
-                                    exit_flag["Stop"] = 0
-                                    exit_flag["False"] = 0
-
                                     ocr_all_number = max(plate_ocr_all_number_dict, key=plate_ocr_all_number_dict.get)
-
-                                    # 문자열 사이 한글을 변경
-                                    # if between_ko:
-                                    #     ocr_all_number = ocr_all_number[0:-5] + between_ko + ocr_all_number[-4:]
 
                                     if len(plate_ocr_5_char_dict) > 0:
                                         ocr_all_number = ocr_all_number[0:-5] + str(max(plate_ocr_5_char_dict,
@@ -159,11 +169,7 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
                                     ocr_front_chars = ocr_all_number[:-4]  # 뒤의 문자 4자리를 제외한 앞의 문자열
 
                                     if len(ocr_list) == 0:
-                                        ocr_list = [ocr_all_number, ocr_front_chars, ocr_last_4_word, plate_id]
-                                        if log_save_s:
-                                            log_save(ocr_last_4_word, ocr_all_number, plate_ocr_5_char_dict)
-                                        if lp_img_save:
-                                            save_detect_img(crop_plate, ocr_all_number)
+                                        ocr_list = [ocr_all_number, ocr_front_chars, ocr_last_4_word]
                                         truck_count += 1
                                         detect_time = time.strftime('%Y-%m-%d %H:%M:%S')
                                         producer_value = {"Detect_Time": detect_time,
@@ -174,27 +180,21 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
                                                           }
                                         try:
                                             print("send : ", producer_value)
-                                            response = producer.send(topic='ocr_result', value=producer_value).get()
+                                            response = producer.send(topic=topic, value=producer_value).get()
                                             print("kafka_response : ", response)
                                         except:
                                             traceback.print_exc()
-                                        print("detect_time : ", detect_time, ", OCR_last_4 : ", ocr_last_4_word,
-                                              ", OCR_all_number : ", ocr_all_number, ", in_truck_count :", truck_count,
-                                              ", Camera_ID : ", camera_id)
+                                        # print("detect_time : ", detect_time, ", OCR_last_4 : ", ocr_last_4_word,
+                                        #       ", OCR_all_number : ", ocr_all_number, ", in_truck_count :", truck_count,
+                                        #       ", Camera_ID : ", camera_id)
                                     else:
-                                        score = lp_decision(ocr_front_chars, ocr_list, ocr_last_4_word, plate_id,
+                                        score = lp_decision(ocr_front_chars, ocr_list, ocr_last_4_word,
                                                             ocr_all_number, lp_conf)
                                         # lp_conf 값이 지정 값을 넘으면 동일 번호판 으로 인식
                                         if score >= lp_conf:
                                             pass
                                         else:
-                                            ocr_list = [ocr_all_number, ocr_front_chars, ocr_last_4_word, plate_id]
-                                            if log_save_s:  # True 일 경우  로그 저장
-                                                log_save(ocr_last_4_word, ocr_all_number, plate_ocr_5_char_dict)
-
-                                            if lp_img_save:
-                                                save_detect_img(crop_plate, ocr_all_number)
-
+                                            ocr_list = [ocr_all_number, ocr_front_chars, ocr_last_4_word]
                                             truck_count += 1
 
                                             detect_time = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -206,14 +206,14 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
                                                               }
                                             try:
                                                 print("send : ", producer_value)
-                                                response = producer.send(topic='ocr_result', value=producer_value).get()
+                                                response = producer.send(topic=topic, value=producer_value).get()
                                                 print("kafka_response : ", response)
                                             except:
                                                 traceback.print_exc()
-                                            print("detect_time : ", detect_time, ", OCR_last_4 : ", ocr_last_4_word,
-                                                  ", OCR_all_number : ", ocr_all_number, ", in_truck_count :",
-                                                  truck_count,
-                                                  ", Camera_ID : ", camera_id)
+                                            # print("detect_time : ", detect_time, ", OCR_last_4 : ", ocr_last_4_word,
+                                            #       ", OCR_all_number : ", ocr_all_number, ", in_truck_count :",
+                                            #       truck_count,
+                                            #       ", Camera_ID : ", camera_id)
 
                                     plate_ocr_4word_dict.clear()
                                     plate_ocr_all_number_dict.clear()
@@ -242,7 +242,7 @@ def input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save):
         else:
             break
 
-def lp_decision(ocr_front_chars, ocr_list, ocr_last_4_word, plate_id, ocr_all_number, lp_conf):
+def lp_decision(ocr_front_chars, ocr_list, ocr_last_4_word, ocr_all_number, lp_conf):
     score = 100  # 초기 점수를 100으로 설정
     # ocr 문자열 이 모두 동일 하면 같은 번호판 으로 판단
     if ocr_all_number == ocr_list[0]:
@@ -343,9 +343,9 @@ def save_detect_img(crop_plate, ocr_all_number):
     crop_plate.save(os.path.join(today_dir, f'{time_str + "_" + ocr_all_number}.jpg'), quality=1)
 
 
-def check_path(camera_path, log_save_s, lp_conf, lp_img_save):
+def check_path(camera_path, lp_conf, bs, topic):
     if camera_path:
-        input_rtsp(camera_path, log_save_s, lp_conf, lp_img_save)
+        input_rtsp(camera_path, lp_conf, bs, topic)
     else:
         print("Enter the camera path!")
 
@@ -353,10 +353,9 @@ def check_path(camera_path, log_save_s, lp_conf, lp_img_save):
 def input_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--camera', default=None, help='set your camera IP')
-    parser.add_argument('--log_save', default=False, help='You can choose log save.')
     parser.add_argument('--conf', type=float, default=70, help='Same license plate accuracy out of 100.')
-    parser.add_argument('--img_save', default=False, help='Save the crop image of the detected license plate displayed '
-                                                          'in the log')
+    parser.add_argument('-bs', '--bootstrap_server', default=None, help="use bootstrap_server")
+    parser.add_argument('-t', '--topic', default=None, help="use topic")
     args = parser.parse_args()
     return args
 
@@ -378,10 +377,10 @@ def record_video(camera_path):
 def main():
     args = input_parser()
     camera_path = args.camera
-    log_save_s = args.log_save
     lp_conf = args.conf
-    lp_img_save = args.img_save
-    check_path(camera_path, log_save_s, lp_conf, lp_img_save)
+    bs = args.bootstrap_server
+    topic = args.topic
+    check_path(camera_path, lp_conf, bs, topic)
 
 if __name__ == '__main__':
     main()

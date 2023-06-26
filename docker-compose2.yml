@@ -1,0 +1,161 @@
+version: '3'  #docker-compose version
+services:
+  zookeeper:
+    image: zookeeper:3.4.9
+    networks:
+      - broker-kafka
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 5
+      ZOOKEEPER_SYNC_LIMIT: 2
+    ports:
+      - "2181:2181"
+    volumes:
+      - ./data/zookeeper/data:/data
+      - ./data/zookeeper/datalog:/datalog
+  kafka1:
+#    container_name: kafka_1
+    image: confluentinc/cp-kafka:5.3.0
+    hostname: kafka1
+    networks:
+      - broker-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka1:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  kafka2:
+#    container_name: kafka_2
+    image: confluentinc/cp-kafka:5.3.0
+    hostname: kafka2
+    networks:
+      - broker-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29093:29093"
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka2:9093,PLAINTEXT_HOST://localhost:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  kafka3:
+    #    container_name: kafka_2
+    image: confluentinc/cp-kafka:5.3.0
+    hostname: kafka3
+    networks:
+      - broker-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29094:29094"
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka3:9094,PLAINTEXT_HOST://localhost:29094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  yolo_ocr:
+    container_name: yolo_ocr_model
+    build:
+      context: .
+      dockerfile: model.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    command: python3 -u kafka_producer.py -c rtsp://admin:admin13579!\@220.95.111.220/profile2/media.smp -bs kafka1:9092 -t stream_1
+    depends_on:
+      - zookeeper
+      - kafka1
+    networks:
+      - broker-kafka
+  consumer:
+    container_name: post_consumer
+    build:
+      context: .
+      dockerfile: consumer.Dockerfile
+    command: python3 -u consumer_post.py -bs kafka1:9092 -t stream_1
+    depends_on:
+      - zookeeper
+      - kafka1
+    networks:
+      - broker-kafka
+  yolo_ocr2:
+    container_name: yolo_ocr_model2
+    build:
+      context: .
+      dockerfile: model.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    command: python3 -u kafka_producer.py -c rtsp://admin:Q1w2e3r4t5!\@192.168.0.15 -bs kafka2:9093 -t stream_2
+    depends_on:
+      - zookeeper
+      - kafka2
+    networks:
+      - broker-kafka
+  consumer2:
+    container_name: post_consumer2
+    build:
+      context: .
+      dockerfile: consumer.Dockerfile
+    command: python3 -u consumer_post.py -bs kafka2:9093 -t stream_2
+    depends_on:
+      - zookeeper
+      - kafka2
+    networks:
+      - broker-kafka
+  yolo_ocr3:
+    container_name: yolo_ocr_model3
+    build:
+      context: .
+      dockerfile: model.Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+    command: python3 -u kafka_producer.py -c rtsp://admin:Q1w2e3r4t5!\@192.168.0.13 -bs kafka3:9094 -t stream_3
+    depends_on:
+      - zookeeper
+      - kafka3
+    networks:
+      - broker-kafka
+  consumer3:
+    container_name: post_consumer3
+    build:
+      context: .
+      dockerfile: consumer.Dockerfile
+    command: python3 -u consumer_post.py -bs kafka3:9094 -t stream_3
+    depends_on:
+      - zookeeper
+      - kafka3
+    networks:
+      - broker-kafka
+
+# PLZ Add Consumer dockerfile
+# ---------------------------------
+networks:
+  broker-kafka:
+    driver: bridge
