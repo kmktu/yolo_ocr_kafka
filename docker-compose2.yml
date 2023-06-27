@@ -78,7 +78,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
-    command: python3 -u kafka_producer.py -c rtsp://admin:admin13579!\@220.95.111.220/profile2/media.smp -bs kafka1:9092 -t stream_1
+    command: python3 -u kafka_producer.py -c "camera_path" -bs kafka1:9092 -t stream_1
     depends_on:
       - zookeeper
       - kafka1
@@ -107,7 +107,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
-    command: python3 -u kafka_producer.py -c rtsp://admin:Q1w2e3r4t5!\@192.168.0.15 -bs kafka2:9093 -t stream_2
+    command: python3 -u kafka_producer.py -c "camera_path" -bs kafka2:9093 -t stream_2
     depends_on:
       - zookeeper
       - kafka2
@@ -136,7 +136,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
-    command: python3 -u kafka_producer.py -c rtsp://admin:Q1w2e3r4t5!\@192.168.0.13 -bs kafka3:9094 -t stream_3
+    command: python3 -u kafka_producer.py -c "camera_path" -bs kafka3:9094 -t stream_3
     depends_on:
       - zookeeper
       - kafka3
